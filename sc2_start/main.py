@@ -26,6 +26,7 @@ import tensorflow
 import h5py
 import pickle
 import time
+import pandas as pd
 
 max_iter = 1000000
 class_num = 30
@@ -33,7 +34,7 @@ var_size = 41
 memory_size = 500
 nan_replacement = -1
 max_game_training_size = 1000
-perc_to_consider = .5
+perc_to_consider = .1
 
 
 aggressive_units = {
@@ -104,11 +105,12 @@ def train_strat_model():
     pos_y = enc.transform(np.reshape(pos_y, (-1, 1)))
     neg_y = enc.transform(np.reshape(neg_y, (-1, 1)))
 
-    x = np.vstack([pos_x, neg_x])
+    # x = np.vstack([pos_x, neg_x])
     pos_y = pos_y.astype(np.float32)
     neg_y = (neg_y == 0).astype(np.float32)
-    y = np.vstack([pos_y, neg_y])
-
+    # y = np.vstack([pos_y, neg_y])
+    x = pos_x
+    y = pos_y
     # model = ExtraTreesClassifier(n_jobs=-1, min_samples_leaf = 50)
     # model.fit(pos_x, pos_y)
     #
@@ -128,9 +130,10 @@ def train_strat_model():
                                 save_weights_only=False)]
 
     model = models.Sequential()
-    model.add(layers.Dense(1000, input_dim=40 + memory_size, activation='elu'))
-    model.add(layers.Dense(1000, activation='elu'))
-    model.add(layers.Dense(1000, activation='elu'))
+    model.add(layers.Dense(2000, input_dim=45 + memory_size, activation='elu'))
+    model.add(layers.Dense(2000, activation='elu'))
+    model.add(layers.Dense(2000, activation='elu'))
+
     model.add(layers.Dense(class_num, activation='sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['mae'])
     model.fit(x_train, y_train, validation_data=(x_val, y_val), callbacks=cb, epochs=100, batch_size=512)
@@ -224,12 +227,13 @@ class SentdeBot(sc2.BotAI):
             self.move_history.append(-1)
 
 
-    def reward_func(self):
+    def run_reward_func(self):
         # return len([i for i in self.units if i.name == 'Voidray'])
         # return self.state.score.score + (self.state.score.killed_value_units * 5) - self.minerals - self.vespene
         # return ( self.state.score.score - self.minerals - self.vespene) + (self.state.score.killed_value_units * ( self.state.score.score - self.minerals - self.vespene))
-        return self.state.score.score
+        # return self.state.score.score
         # return self.state.score.killed_value_units + (self.state.score.killed_value_structures * self.state.score.killed_value_structures)
+        self.max_score =  max(self.state.score.killed_value_units, self.max_score)
 
 
     def get_state(self):
@@ -275,19 +279,24 @@ class SentdeBot(sc2.BotAI):
         probe_by_nexus = n_probes/max(1, num_th)
         probe_by_units = n_probes/max(1, supply_used)
 
-        n_e_mar = len([i for i in self.known_enemy_units if i.name == 'Marine'])
-        n_e_mau = len([i for i in self.known_enemy_units if i.name == 'Marauder'])
-        n_e_hel = len([i for i in self.known_enemy_units if i.name == 'Hellion'])
-        n_e_vik = len([i for i in self.known_enemy_units if i.name == 'Viking'])
-        n_e_banshee = len([i for i in self.known_enemy_units if i.name == 'Banshee'])
-        n_e_raven = len([i for i in self.known_enemy_units if i.name == 'Raven'])
-        n_e_tank = len([i for i in self.known_enemy_units if i.name == 'Tank'])
-        n_e_hell = len([i for i in self.known_enemy_units if i.name == 'Hellbat'])
+        n_gates_e = len([ i for i in self.known_enemy_units if i.name == 'Gateway'])
+        n_cyber_e = len([ i for i in self.known_enemy_units if i.name == 'CyberneticsCore'])
+        n_stalker_e = len([ i for i in self.known_enemy_units if i.name == 'Stalker'])
+        n_stargate_e = len([ i for i in self.known_enemy_units if i.name == 'Stargate'])
+        n_void_e = len([ i for i in self.known_enemy_units if i.name == 'Voidray'])
+        n_robo_e = len([ i for i in self.known_enemy_units if i.name == 'RoboticsFacility'])
+        n_im_e = len([ i for i in self.known_enemy_units if i.name == 'Immortal'])
+        n_zealot_e = len([ i for i in self.known_enemy_units if i.name == 'Zealot'])
+        n_obs_e= len([ i for i in self.known_enemy_units if i.name == 'Observer'])
+        n_adept_e= len([ i for i in self.known_enemy_units if i.name == 'Adept'])
+        n_dt_e = len([i for i in self.known_enemy_units if i.name == 'DarkTemplar'])
+        n_cannon_e = len([i for i in self.known_enemy_units if i.name == 'PhotonCannon'])
+        n_sheild_e = len([i for i in self.known_enemy_units if i.name == 'ShieldBattery'])
 
         return [dead_unit_count, unit_count, game_loop, minerals, supply_cap, supply_left, num_th, keu, kes,
                 vg, l_vg, n_probes, n_gates, n_cyber, n_stalker,n_zealot,n_stargate,n_void,n_robo,n_im,
-                n_e_mar, n_e_mau, n_e_hel, n_e_vik, n_e_banshee, n_e_raven, n_e_tank, n_obs, n_adept, n_dt,
-                n_cannon, n_sheild, n_e_hell, d1, d2, d3, supply_used, probe_by_nexus, probe_by_units,
+                n_gates_e, n_cyber_e, n_stalker_e, n_stargate_e, n_void_e, n_robo_e, n_im_e, n_zealot_e, n_obs_e, n_adept_e, n_dt_e, n_cannon_e, n_sheild_e, n_obs, n_adept, n_dt,
+                n_cannon, n_sheild, d1, d2, d3, supply_used, probe_by_nexus, probe_by_units,
                 self.counter]
 
 
@@ -297,8 +306,11 @@ class SentdeBot(sc2.BotAI):
         self.counter += 1
         self.iteration = iteration
         try:
-            if self.max_score < self.reward_func():
-                self.max_score =  self.reward_func()
+            # print(self.time)
+            # if self.time > 600:
+            #     return
+
+            self.run_reward_func()
 
             dump_dict = {'score':self.max_score, 'past_moves':self.past_moves}
 
@@ -387,7 +399,7 @@ class SentdeBot(sc2.BotAI):
 
 
     async def build_workers(self):
-        if self.units(NEXUS).ready.noqueue and self.can_afford(PROBE):
+        if self.units(NEXUS).ready.noqueue and self.can_afford(PROBE) and len(self.workers) < 50:
             nexus = self.units(NEXUS).ready.noqueue.random
             await self.do(nexus.train(PROBE))
 
@@ -395,19 +407,19 @@ class SentdeBot(sc2.BotAI):
     async def build_pylons(self):
 
         if  self.can_afford(PYLON) and self.units(NEXUS).ready :
-            if len(self.owned_expansions) > 1:
-                nexuses = [i for i in self.owned_expansions][1:]
-            else:
-                nexuses  = [i for i in self.owned_expansions]
-            nexus = random.choice(nexuses)
-            await self.build(PYLON, near=nexus.position.towards(self.game_info.map_center, random.randint(2, 15)))
+            # if len(self.owned_expansions) > 1:
+            #     nexuses = [i for i in self.owned_expansions][1:]
+            # else:
+            #     nexuses  = [i for i in self.owned_expansions]
+            # nexus = random.choice(nexuses)
+            await self.build(PYLON, near=self.units(NEXUS).random.position.towards(self.game_info.map_center, random.randint(2, 15)))
 
 
 
     async def build_support_pylon(self):
         if self.can_afford(PYLON) and self.units(PYLON).ready:
             nexus = self.units(PYLON).ready.random
-            await self.build(PYLON, near=nexus.position)
+            await self.build(PYLON, near=nexus.position, max_distance=5)
 
 
     async def build_assimilators(self):
@@ -659,6 +671,18 @@ class SentdeBot(sc2.BotAI):
                 await self.do(s.move(self.start_location))
 
 
+    async def attack_own_building(self):
+
+        if self.supply_used > 150:
+            targets = [i for i in self.units if i.is_structure]
+            target = random.choice(targets)
+
+            for UNIT in aggressive_units:
+                for s in self.units(UNIT).idle:
+                    await self.do(s.attack(target))
+
+
+
     '''Helper functions'''
     def distance_nexus_to_enemy(self):
         return get_closest_distance(self.units(NEXUS), self.known_enemy_units)
@@ -677,28 +701,49 @@ def run_games():
 
     ts = int(datetime.datetime.now().timestamp())
     a = None
-    print('playing easy')
+    print('playing hard toss')
     a = run_game(maps.get("AbyssalReefLE"), [
         Bot(Race.Protoss, SentdeBot(s)),
-        Computer(Race.Terran, Difficulty.Easy)
+        Computer(Race.Protoss, Difficulty.VeryEasy)
         ], realtime=False)
+
+    print(a.result)
+    if a.name == 'Defeat':
+        dump_dict['score'] = 0
+    else:
+        dump_dict['score'] = 1
 
     with open('{0}/{1}_data.plk'.format(path, ts), 'wb') as f:
         pickle.dump(dump_dict, f)
+    print('game_score:', dump_dict['score'])
+    return dump_dict['score']
+
 
 if __name__ == '__main__':
     games = 0
     wins = 0
     win_rate = 0
     difficulties = [0]
-    for i in range(20000):
+    record = []
 
+    for i in range(20000):
+        print('game num:', i)
         try:
-            if i % 1 == 0 and i != 0:
+            if i % 10 == 0 and i != 0:
                 train_strat_model()
         except:
             traceback.print_exc()
-        run_games()
+        wins += run_games()
+        games += 1
+
+        win_rate = wins / games
+
+        print('win_rate', win_rate, i)
+        record.append({'win_rate':win_rate, 'num': i})
+        df = pd.DataFrame.from_dict(record)
+        df.to_csv('record.csv', index = False)
+
+
         # pool = [multiprocessing.Process(target=run_games) for i in range(6)]
         # for p in pool:
         #     p.start()
