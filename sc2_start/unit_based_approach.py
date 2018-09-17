@@ -7,7 +7,7 @@ OBSERVER, IMMORTAL, ADEPT, FORGE, SHIELDBATTERY, PHOTONCANNON, TWILIGHTCOUNCIL, 
 DARKSHRINE, DARKTEMPLAR, ORBITALCOMMAND, COMMANDCENTER, DESTRUCTIBLEROCK2X4VERTICAL, \
 DESTRUCTIBLEROCK2X4HORIZONTAL, DESTRUCTIBLEROCK2X6VERTICAL, DESTRUCTIBLEROCK2X6HORIZONTAL, \
 DESTRUCTIBLEROCK4X4, DESTRUCTIBLEROCK6X6
-
+import multiprocessing
 import random
 import asyncio
 import numpy as np
@@ -16,22 +16,24 @@ import datetime
 import glob
 import operator
 import os
+from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, MinMaxScaler, LabelBinarizer
 import lightgbm as lgb
 import traceback
 from keras import layers, models, callbacks
 import tensorflow
 import h5py
 import pickle
-
+import time
 
 max_iter = 1000000
 class_num = 30
 var_size = 41
-memory_size = 1
-nan_replacement = -999999
+memory_size = 500
+nan_replacement = -1
 max_game_training_size = 1000
+perc_to_consider = .5
 
 
 aggressive_units = {
@@ -59,6 +61,7 @@ def train_strat_model():
         with open(i, 'rb') as f:
             dicts.append(pickle.load(f))
 
+    random.shuffle(dicts)
     dicts.sort(reverse = True, key = lambda x: x['score'])
     print(len(dicts))
     print([i['score'] for i in dicts])
@@ -68,10 +71,11 @@ def train_strat_model():
     x = np.array([i['game_state'] for i in features])
     y = np.array([i['f'] for i in features])
 
-    x = x.reshape((-1, var_size * memory_size))
-    scaler = StandardScaler()
+    # x = x.reshape((-1, var_size * memory_size))
+    x = np.squeeze(x)
+    scaler = MinMaxScaler()
     scaler.fit(x)
-    enc = OneHotEncoder(sparse = False)
+    enc = LabelBinarizer(sparse_output = False)
     enc.fit(np.reshape(y, (-1, 1)))
 
     with open(path + 'scaler.plk', 'wb') as f:
@@ -79,8 +83,8 @@ def train_strat_model():
     with open(path + 'encoder.plk', 'wb') as f:
         pickle.dump(enc, f)
 
-    pos_dicts = dicts[:len(dicts)//2]
-    neg_dicts = dicts[-len(dicts)//2:]
+    pos_dicts = dicts[:int(len(dicts)*perc_to_consider)]
+    neg_dicts = dicts[-int(len(dicts)*perc_to_consider):]
     pos_features = sum([i['past_moves'] for i in pos_dicts], [])
     neg_features = sum([i['past_moves'] for i in neg_dicts], [])
 
@@ -89,8 +93,10 @@ def train_strat_model():
     pos_y = np.array([i['f'] for i in pos_features])
     neg_y = np.array([i['f'] for i in neg_features])
 
-    pos_x = pos_x.reshape((-1, var_size * memory_size))
-    neg_x = neg_x.reshape((-1, var_size * memory_size))
+    # pos_x = pos_x.reshape((-1, var_size * memory_size))
+    # neg_x = neg_x.reshape((-1, var_size * memory_size))
+    pos_x = np.squeeze(pos_x)
+    neg_x = np.squeeze(neg_x)
 
     pos_x = scaler.transform(pos_x)
     neg_x = scaler.transform(neg_x)
@@ -102,17 +108,29 @@ def train_strat_model():
     pos_y = pos_y.astype(np.float32)
     neg_y = (neg_y == 0).astype(np.float32)
     y = np.vstack([pos_y, neg_y])
-    x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=.1)
 
+    # model = ExtraTreesClassifier(n_jobs=-1, min_samples_leaf = 50)
+    # model.fit(pos_x, pos_y)
+    #
+    # with open(path + 'model.plk', 'wb') as f:
+    #     pickle.dump(model, f)
+    #
+    # res = model.predict(x)
+    # print(res)
+    #
+
+
+    x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=.1)
+    #
     cb = [callbacks.EarlyStopping(patience=0),
                 callbacks.ModelCheckpoint(path + 'dnn.h5',
                                 save_best_only=True,
                                 save_weights_only=False)]
 
     model = models.Sequential()
-    model.add(layers.Dense(4000, input_dim=var_size * memory_size, activation='elu'))
-    model.add(layers.Dense(4000, activation='elu'))
-    model.add(layers.Dense(class_num * 2, activation='elu'))
+    model.add(layers.Dense(1000, input_dim=40 + memory_size, activation='elu'))
+    model.add(layers.Dense(1000, activation='elu'))
+    model.add(layers.Dense(1000, activation='elu'))
     model.add(layers.Dense(class_num, activation='sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['mae'])
     model.fit(x_train, y_train, validation_data=(x_val, y_val), callbacks=cb, epochs=100, batch_size=512)
@@ -120,7 +138,7 @@ def train_strat_model():
 
 def get_closest(unit, unit_list):
     closest_unit = None
-    closest_distance = 9999
+    closest_distance = 999
 
     for i in unit_list:
         if i.distance_to(unit) < closest_distance:
@@ -130,7 +148,7 @@ def get_closest(unit, unit_list):
 
 
 def get_closest_distance(units, e_units):
-    closest_distance = 9999
+    closest_distance = 999
 
     for i in units:
         for j in e_units:
@@ -140,11 +158,14 @@ def get_closest_distance(units, e_units):
 
 
 class Strat():
-    random_chance = .2
+    random_chance = .01
     print('random', random_chance)
     def __init__(self):
         try:
             self.model = models.load_model(path + 'dnn.h5')
+            # with open(path + 'model.plk', 'rb') as f:
+            #     self.model = pickle.load(f)
+
             with open(path + 'scaler.plk', 'rb') as f:
                 self.scaler = pickle.load(f)
             with open(path + 'encoder.plk', 'rb') as f:
@@ -159,30 +180,56 @@ class Strat():
             next_move = random.choice(move_dict)
         else:
             game_state = np.expand_dims(game_state, 0)
-            game_state = game_state.reshape((-1, var_size * memory_size))
+            # print(game_state.shape)
+            game_state = np.reshape(game_state, (1, -1))
+            # print(game_state.shape)
+
+            # game_state = game_state.reshape((-1, var_size * memory_size))
             scaled_input = self.scaler.transform(game_state)
             a = self.model.predict(scaled_input)
-            next_move = np.argmax(a[0])
+            # next_move = a[0]
+            # print(next_move)
+            p = a[0]
+            p /= p.sum()
+
+            # print(p.tolist())
+            next_move_index = np.random.choice(np.array([i for i in range(p.shape[0])]), p = p)
+            next_move_array = [0 for _ in range(p.shape[0])]
+            next_move_array[next_move_index] = 1
+            next_move_array =np.array([next_move_array])
+            next_move = self.encoder.inverse_transform(np.array(next_move_array))[0]
+            # print(next_move)
+            # next_move = np.argmax(a[0])
         return next_move
 
 
 class SentdeBot(sc2.BotAI):
 
-    def __init__(self):
+    def __init__(self, s):
+        super().__init__()
         self.ts = int(datetime.datetime.now().timestamp())
         self.ITERATIONS_PER_MINUTE = 60
         self.MAX_WORKERS = 100
         self.memory = memory_size
         self.actions = [i for i in range(class_num)]
         self.past_moves = []
-        self.s = Strat()
+        self.s = s
         self.max_score = 0
         self.games_states = []
         self.move_history = []
+        self.counter = 0
 
         for i in range(memory_size + 1):
             self.games_states.append([nan_replacement for j in range(var_size - 1)])
             self.move_history.append(-1)
+
+
+    class UnitWrapper():
+        def __init__(self, u):
+            self.unit = u
+
+        def get_features(self):
+            pass
 
 
     def reward_func(self):
@@ -190,6 +237,7 @@ class SentdeBot(sc2.BotAI):
         # return self.state.score.score + (self.state.score.killed_value_units * 5) - self.minerals - self.vespene
         # return ( self.state.score.score - self.minerals - self.vespene) + (self.state.score.killed_value_units * ( self.state.score.score - self.minerals - self.vespene))
         return self.state.score.score
+        # return self.state.score.killed_value_units + (self.state.score.killed_value_structures * self.state.score.killed_value_structures)
 
 
     def get_state(self):
@@ -206,7 +254,6 @@ class SentdeBot(sc2.BotAI):
 
         dead_unit_count = len(self.state.dead_units)
         unit_count = len(self.units)
-        score = self.state.score.score
         game_loop = self.state.game_loop
         minerals = self.minerals
         vg = self.vespene
@@ -245,15 +292,17 @@ class SentdeBot(sc2.BotAI):
         n_e_tank = len([i for i in self.known_enemy_units if i.name == 'Tank'])
         n_e_hell = len([i for i in self.known_enemy_units if i.name == 'Hellbat'])
 
-
-        return [dead_unit_count, unit_count, score, game_loop, minerals, supply_cap, supply_left, num_th, keu, kes,
+        return [dead_unit_count, unit_count, game_loop, minerals, supply_cap, supply_left, num_th, keu, kes,
                 vg, l_vg, n_probes, n_gates, n_cyber, n_stalker,n_zealot,n_stargate,n_void,n_robo,n_im,
                 n_e_mar, n_e_mau, n_e_hel, n_e_vik, n_e_banshee, n_e_raven, n_e_tank, n_obs, n_adept, n_dt,
-                n_cannon, n_sheild, n_e_hell, d1, d2, d3, supply_used, probe_by_nexus, probe_by_units]
+                n_cannon, n_sheild, n_e_hell, d1, d2, d3, supply_used, probe_by_nexus, probe_by_units,
+                self.counter]
 
 
     async def on_step(self, iteration):
         global dump_dict
+
+        self.counter += 1
         self.iteration = iteration
         try:
             if self.max_score < self.reward_func():
@@ -263,12 +312,19 @@ class SentdeBot(sc2.BotAI):
 
             game_state = self.get_state()
             self.games_states.append(game_state)
-            t_game_state = self.games_states[-memory_size:]
-            np_t_game_state = np.array(t_game_state)
-            np_t_past_moves = np.expand_dims(np.array(self.move_history[-memory_size:]), 1)
+            t_game_state = self.games_states[-1]
+            np_t_game_state = np.expand_dims(np.array(t_game_state), 0)
+            np_t_past_moves = np.expand_dims(np.array(self.move_history[-memory_size:]), 0)
             np_t_game_state = np.hstack([np_t_game_state, np_t_past_moves])
 
             f = self.actions[self.s.get_move(self.actions, np_t_game_state)]
+
+            # #artificial fixes
+            # if len(self.townhalls) < 2 and random.random() < .8:
+            #     f = 4
+            # while ((f == 2 or f == 28) and (self.supply_cap > 190 or self.supply_cap/len(self.townhalls) > 25)):
+            #     f = self.actions[self.s.get_move(self.actions, np_t_game_state)]
+
             self.move_history.append(f)
 
             if f == 0:
@@ -339,15 +395,20 @@ class SentdeBot(sc2.BotAI):
 
 
     async def build_workers(self):
-        if self.units(NEXUS).ready and self.can_afford(PROBE):
-            nexus = self.units(NEXUS).ready.random
+        if self.units(NEXUS).ready.noqueue and self.can_afford(PROBE):
+            nexus = self.units(NEXUS).ready.noqueue.random
             await self.do(nexus.train(PROBE))
 
 
     async def build_pylons(self):
-        if  self.can_afford(PYLON) and self.units(NEXUS).ready:
-            nexus = self.units(NEXUS).ready.random
-            await self.build(PYLON, near=nexus.position.towards(self.game_info.map_center, 5))
+
+        if  self.can_afford(PYLON) and self.units(NEXUS).ready :
+            if len(self.owned_expansions) > 1:
+                nexuses = [i for i in self.owned_expansions][1:]
+            else:
+                nexuses  = [i for i in self.owned_expansions]
+            nexus = random.choice(nexuses)
+            await self.build(PYLON, near=nexus.position.towards(self.game_info.map_center, random.randint(2, 15)))
 
 
 
@@ -382,14 +443,14 @@ class SentdeBot(sc2.BotAI):
 
 
     async def build_stargate(self):
-        if self.units(CYBERNETICSCORE).ready.exists and self.can_afford(STARGATE):
-            pylon = self.units(PYLON).ready.random
+        if self.units(CYBERNETICSCORE).ready.noqueue.exists and self.can_afford(STARGATE):
+            pylon = self.units(PYLON).ready.noqueue.random
             await self.build(STARGATE, near=pylon)
 
 
     async def build_robo(self):
-        if self.units(CYBERNETICSCORE).ready.exists and self.can_afford(ROBOTICSFACILITY):
-            pylon = self.units(PYLON).ready.random
+        if self.units(CYBERNETICSCORE).ready.noqueue.exists and self.can_afford(ROBOTICSFACILITY):
+            pylon = self.units(PYLON).ready.noqueue.random
             await self.build(ROBOTICSFACILITY, near=pylon)
 
 
@@ -539,15 +600,23 @@ class SentdeBot(sc2.BotAI):
         for UNIT in aggressive_units:
             for s in self.units(UNIT).idle:
                 if len(self.known_enemy_units) > 0  and self.units(NEXUS).ready:
-                    target = self.known_enemy_units.closest_to(random.choice(self.units(NEXUS)))
-                    if target and target:
+                    if not s.can_attack_air:
+                        targets = [i for i in self.known_enemy_units if not i.is_flying]
+                    else:
+                        targets = [i for i in self.known_enemy_units]
+                    target = get_closest(s, targets)
+                    if target:
                         await self.do(s.attack(target))
 
 
     async def attack(self):
         for UNIT in aggressive_units:
             for s in self.units(UNIT):
-                target = get_closest(s,  self.known_enemy_units)
+                if not s.can_attack_air:
+                    targets = [i for i in self.known_enemy_units if not i.is_flying]
+                else:
+                    targets = [i for i in self.known_enemy_units]
+                target = get_closest(s, targets)
                 if target:
                     await self.do(s.attack(target))
 
@@ -564,7 +633,7 @@ class SentdeBot(sc2.BotAI):
 
 
     async def attack_closest_building(self):
-        targets = self.known_enemy_structures(ORBITALCOMMAND)
+        targets = self.known_enemy_structures
 
         if targets:
             for UNIT in aggressive_units:
@@ -611,19 +680,37 @@ class SentdeBot(sc2.BotAI):
         return get_closest_distance(self.units, self.known_enemy_structures)
 
 
+def run_games():
+    s = Strat()
 
-for i in range(5000):
-    print('game', i)
-    try:
-        if i % 100 == 0 and i > 0:
-            train_strat_model()
-    except:
-        traceback.print_exc()
     ts = int(datetime.datetime.now().timestamp())
+    a = None
+    print('playing easy')
     a = run_game(maps.get("AbyssalReefLE"), [
-        Bot(Race.Protoss, SentdeBot()),
-        Computer(Race.Terran, Difficulty.Hard)
+        Bot(Race.Protoss, SentdeBot(s)),
+        Computer(Race.Terran, Difficulty.Easy)
         ], realtime=False)
 
     with open('{0}/{1}_data.plk'.format(path, ts), 'wb') as f:
         pickle.dump(dump_dict, f)
+
+if __name__ == '__main__':
+    games = 0
+    wins = 0
+    win_rate = 0
+    difficulties = [0]
+    for i in range(20000):
+
+        try:
+            if i % 1 == 0 and i != 0:
+                train_strat_model()
+        except:
+            traceback.print_exc()
+        run_games()
+        # pool = [multiprocessing.Process(target=run_games) for i in range(6)]
+        # for p in pool:
+        #     p.start()
+        #     time.sleep(5)
+        # [p.join() for p in pool]
+
+
