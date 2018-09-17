@@ -312,10 +312,10 @@ class SentdeBot(sc2.BotAI):
             f = self.actions[self.s.get_move(self.actions, np_t_game_state)]
 
             # #artificial fixes
-            # if len(self.townhalls) < 2 and random.random() < .8:
-            #     f = 4
-            # while ((f == 2 or f == 28) and (self.supply_cap > 190 or self.supply_cap/len(self.townhalls) > 25)):
-            #     f = self.actions[self.s.get_move(self.actions, np_t_game_state)]
+            if len(self.townhalls) < 2 and random.random() < .8:
+                f = 4
+            while ((f == 2 or f == 28) and (self.supply_cap > 190 or self.supply_cap/len(self.townhalls) > 25)):
+                f = self.actions[self.s.get_move(self.actions, np_t_game_state)]
 
             self.move_history.append(f)
 
