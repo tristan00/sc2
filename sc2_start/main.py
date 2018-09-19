@@ -84,8 +84,13 @@ def train_strat_model():
     with open(path + 'encoder.plk', 'wb') as f:
         pickle.dump(enc, f)
 
-    pos_dicts = dicts[:int(len(dicts)*perc_to_consider)]
-    neg_dicts = dicts[-int(len(dicts)*perc_to_consider):]
+    # pos_dicts = dicts[:int(len(dicts)*perc_to_consider)]
+    # neg_dicts = dicts[-int(len(dicts)*perc_to_consider):]
+    pos_dicts = [i for i in dicts if i['score'] > 0]
+    if len(pos_dicts) < 10:
+        raise Exception('not enough data')
+
+    neg_dicts = [i for i in dicts if i['score'] < 0]
     pos_features = sum([i['past_moves'] for i in pos_dicts], [])
     neg_features = sum([i['past_moves'] for i in neg_dicts], [])
 
@@ -130,9 +135,9 @@ def train_strat_model():
                                 save_weights_only=False)]
 
     model = models.Sequential()
-    model.add(layers.Dense(2000, input_dim=45 + memory_size, activation='elu'))
-    model.add(layers.Dense(2000, activation='elu'))
-    model.add(layers.Dense(2000, activation='elu'))
+    model.add(layers.Dense(2500, input_dim=45 + memory_size, activation='elu'))
+    model.add(layers.Dense(2500, activation='elu'))
+    model.add(layers.Dense(2500, activation='elu'))
 
     model.add(layers.Dense(class_num, activation='sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['mae'])
@@ -161,7 +166,7 @@ def get_closest_distance(units, e_units):
 
 
 class Strat():
-    random_chance = .01
+    random_chance = .2
     print('random', random_chance)
     def __init__(self):
         try:
@@ -206,12 +211,12 @@ class Strat():
         return next_move
 
 
-class SentdeBot(sc2.BotAI):
+class Partial_RL_Bot(sc2.BotAI):
 
     def __init__(self, s):
         super().__init__()
         self.ts = int(datetime.datetime.now().timestamp())
-        self.ITERATIONS_PER_MINUTE = 60
+        self.ITERATIONS_PER_MINUTE = 10
         self.MAX_WORKERS = 100
         self.memory = memory_size
         self.actions = [i for i in range(class_num)]
@@ -233,7 +238,7 @@ class SentdeBot(sc2.BotAI):
         # return ( self.state.score.score - self.minerals - self.vespene) + (self.state.score.killed_value_units * ( self.state.score.score - self.minerals - self.vespene))
         # return self.state.score.score
         # return self.state.score.killed_value_units + (self.state.score.killed_value_structures * self.state.score.killed_value_structures)
-        self.max_score =  max(self.state.score.killed_value_units, self.max_score)
+        self.max_score =  self.state.score.killed_value_units/(max(self.time*self.time, 1))
 
 
     def get_state(self):
@@ -303,13 +308,14 @@ class SentdeBot(sc2.BotAI):
     async def on_step(self, iteration):
         global dump_dict
 
+        times = {}
         self.counter += 1
         self.iteration = iteration
         try:
             # print(self.time)
             # if self.time > 600:
             #     return
-
+            # self.ex
             self.run_reward_func()
 
             dump_dict = {'score':self.max_score, 'past_moves':self.past_moves}
@@ -323,11 +329,14 @@ class SentdeBot(sc2.BotAI):
 
             f = self.actions[self.s.get_move(self.actions, np_t_game_state)]
 
-            # #artificial fixes
+            # # #artificial fixes
             if len(self.townhalls) < 2 and random.random() < .8:
                 f = 4
-            while ((f == 2 or f == 28) and (self.supply_cap > 190 or self.supply_cap/len(self.townhalls) > 25)):
+            while ((f == 2 or f == 28) and (self.supply_cap > 190 or self.supply_cap/max(len(self.townhalls), 1) > 35)):
                 f = self.actions[self.s.get_move(self.actions, np_t_game_state)]
+
+            if  self.supply_cap > 80 and random.random() > .6:
+                f = random.choice([7, 15, 20, 29])
 
             self.move_history.append(f)
 
@@ -392,6 +401,7 @@ class SentdeBot(sc2.BotAI):
             if f == 29:
                 await self.attack_closest_building()
 
+
             self.past_moves.append({'game_state':np_t_game_state, 'f':f})
 
         except:
@@ -412,7 +422,7 @@ class SentdeBot(sc2.BotAI):
             # else:
             #     nexuses  = [i for i in self.owned_expansions]
             # nexus = random.choice(nexuses)
-            await self.build(PYLON, near=self.units(NEXUS).random.position.towards(self.game_info.map_center, random.randint(2, 15)))
+            await self.build(PYLON, near=self.units(NEXUS).random.position.towards(self.game_info.map_center, random.randint(2, 8)))
 
 
 
@@ -560,7 +570,8 @@ class SentdeBot(sc2.BotAI):
                 await self.do(scout.move(move_to))
 
         if len(self.units(PROBE)) > 0 and not scout_sent:
-            scout = random.choice(self.units(PROBE))
+            scout = self.units(PROBE).random
+            # scout = random.choice(self.units(PROBE))
             if scout.is_idle:
                 enemy_location = self.enemy_start_locations[0]
                 move_to = self.random_location_variance(enemy_location)
@@ -666,9 +677,10 @@ class SentdeBot(sc2.BotAI):
 
 
     async def full_retreat(self):
+        target = self.units(NEXUS).random
         for UNIT in aggressive_units:
             for s in self.units(UNIT):
-                await self.do(s.move(self.start_location))
+                await self.do(s.move(target.position))
 
 
     async def attack_own_building(self):
@@ -681,6 +693,15 @@ class SentdeBot(sc2.BotAI):
                 for s in self.units(UNIT).idle:
                     await self.do(s.attack(target))
 
+
+    # async def move_to_random_loc(self):
+    #     target = (random.random()*, random.random())
+    #
+    #     for UNIT in aggressive_units:
+    #         for s in self.units(UNIT):
+    #             target = get_closest(s, self.units(NEXUS))
+    #             if target:
+    #                 await self.do(s.move(target.position))
 
 
     '''Helper functions'''
@@ -696,22 +717,23 @@ class SentdeBot(sc2.BotAI):
         return get_closest_distance(self.units, self.known_enemy_structures)
 
 
-def run_games():
+def run_games(d):
     s = Strat()
 
     ts = int(datetime.datetime.now().timestamp())
     a = None
-    print('playing hard toss')
+    print('playing toss at d: ', d )
     a = run_game(maps.get("AbyssalReefLE"), [
-        Bot(Race.Protoss, SentdeBot(s)),
-        Computer(Race.Protoss, Difficulty.VeryEasy)
+        Bot(Race.Protoss, Partial_RL_Bot(s)),
+        Computer(Race.Protoss, d)
         ], realtime=False)
 
-    print(a.result)
-    if a.name == 'Defeat':
-        dump_dict['score'] = 0
-    else:
-        dump_dict['score'] = 1
+    # if a.name == 'Defeat':
+    #     dump_dict['score'] = -1
+    # elif a.name == 'Tie':
+    #     dump_dict['score'] = 0
+    # else:
+    #     dump_dict['score'] = 1
 
     with open('{0}/{1}_data.plk'.format(path, ts), 'wb') as f:
         pickle.dump(dump_dict, f)
@@ -720,26 +742,37 @@ def run_games():
 
 
 if __name__ == '__main__':
-    games = 0
-    wins = 0
-    win_rate = 0
-    difficulties = [0]
+    games = 0.0
+    wins = 0.0
+    win_rate = 0.0
+    difficulties = [Difficulty.VeryEasy, Difficulty.Easy, Difficulty.Medium, Difficulty.Hard]
     record = []
 
     for i in range(20000):
         print('game num:', i)
         try:
-            if i % 10 == 0 and i != 0:
+            if i % 100 == 0 and i != 0:
                 train_strat_model()
         except:
             traceback.print_exc()
-        wins += run_games()
+
+        if win_rate < .4:
+            d = difficulties[0]
+        elif win_rate < .6:
+            d = difficulties[1]
+        elif win_rate < .8:
+            d = difficulties[2]
+        else:
+            d = difficulties[3]
+        d = difficulties[0]
+
+        wins += max(run_games(d), 0)
         games += 1
 
         win_rate = wins / games
 
-        print('win_rate', win_rate, i)
-        record.append({'win_rate':win_rate, 'num': i})
+        print('win_rate', win_rate, games)
+        record.append({'win_rate':win_rate, 'num': i, 'd':d})
         df = pd.DataFrame.from_dict(record)
         df.to_csv('record.csv', index = False)
 
