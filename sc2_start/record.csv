@@ -1,9 +1,7 @@
-d,num,win_rate
-Difficulty.Medium,0,0.0
-Difficulty.Medium,1,0.0
-Difficulty.Medium,2,0.0
-Difficulty.Medium,3,0.0
-Difficulty.Medium,4,0.0
-Difficulty.Medium,5,0.0
-Difficulty.Medium,6,0.0
-Difficulty.Medium,7,0.0
+d,num,score,time,win_rate
+Difficulty.Easy,0,0,239.8094470500946,0.0
+Difficulty.Easy,1,1,149.0929741859436,0.5
+Difficulty.Easy,2,1,336.1030888557434,0.6666666666666666
+Difficulty.Easy,3,1,104.06176900863647,0.75
+Difficulty.Easy,4,1,215.06823897361755,0.8
+Difficulty.Easy,5,1,184.1180980205536,0.8333333333333334

@@ -26,6 +26,9 @@ import tensorflow
 import h5py
 import pickle
 import time
+import pandas as pd
+
+
 
 max_iter = 1000000
 class_num = 30
@@ -44,6 +47,9 @@ aggressive_units = {
     ADEPT: [8, 3],
     DARKTEMPLAR: [8, 3],
 }
+
+buildings = {NEXUS,PYLON,ASSIMILATOR,GATEWAY,CYBERNETICSCORE,STARGATE,ROBOTICSFACILITY,TWILIGHTCOUNCIL,DARKSHRINE}
+
 dump_dict = dict()
 
 path = r'C:\Users\trist\Documents\sc2_bot/'
@@ -203,7 +209,7 @@ class Strat():
         return next_move
 
 
-class SentdeBot(sc2.BotAI):
+class UnitBot(sc2.BotAI):
 
     def __init__(self, s):
         super().__init__()
@@ -224,460 +230,48 @@ class SentdeBot(sc2.BotAI):
             self.move_history.append(-1)
 
 
-    class UnitWrapper():
-        def __init__(self, u):
-            self.unit = u
+    def get_possible_moves(self):
+        possible_moves = []
 
-        def get_features(self):
-            pass
+        for i in self.units:
+            possible_moves.append({'move_id':0, 'unit':i, 'x':random.random(), 'y':random.random()})
 
+        for i in self.workers:
+            for b in buildings:
+                possible_moves.append({'move_id':1, 'unit':i, 'building_id': b, 'x':random.random(), 'y':random.random()})
 
-    def reward_func(self):
-        # return len([i for i in self.units if i.name == 'Voidray'])
-        # return self.state.score.score + (self.state.score.killed_value_units * 5) - self.minerals - self.vespene
-        # return ( self.state.score.score - self.minerals - self.vespene) + (self.state.score.killed_value_units * ( self.state.score.score - self.minerals - self.vespene))
-        return self.state.score.score
-        # return self.state.score.killed_value_units + (self.state.score.killed_value_structures * self.state.score.killed_value_structures)
 
 
-    def get_state(self):
-        d1 = self.distance_nexus_to_enemy()
-        d2 = self.distance_to_enemy()
-        d3 = self.distance_to_enemy_buildings()
+    def move(self, unit, v1, v2):
+        unit.move((v1 * self.game_info.map_size[0], v2 * self.game_info.map_size[1]))
 
-        if not d1:
-            d1 = -1
-        if not d2:
-            d2 = -1
-        if not d3:
-            d3 = -1
 
-        dead_unit_count = len(self.state.dead_units)
-        unit_count = len(self.units)
-        game_loop = self.state.game_loop
-        minerals = self.minerals
-        vg = self.vespene
-        l_vg = len(self.geysers)
-        n_probes = len(self.workers)
-        supply_cap = self.supply_cap
-        supply_left = self.supply_left
-        supply_used = self.supply_used
+    def build_building(self, u, b, v1, v2):
+        self.build(building=b, unit=u, near=position.Point2((v1 * self.game_info.map_size[0], v2 * self.game_info.map_size[1])))
 
-        num_th = len(self.townhalls)
-        keu = len(self.known_enemy_units)
-        kes = len(self.known_enemy_structures)
 
-        n_gates = len([ i for i in self.units if i.name == 'Gateway'])
-        n_cyber = len([ i for i in self.units if i.name == 'CyberneticsCore'])
-        n_stalker = len([ i for i in self.units if i.name == 'Stalker'])
-        n_stargate = len([ i for i in self.units if i.name == 'Stargate'])
-        n_void = len([ i for i in self.units if i.name == 'Voidray'])
-        n_robo = len([ i for i in self.units if i.name == 'RoboticsFacility'])
-        n_im = len([ i for i in self.units if i.name == 'Immortal'])
-        n_zealot = len([ i for i in self.units if i.name == 'Zealot'])
-        n_obs= len([ i for i in self.units if i.name == 'Observer'])
-        n_adept= len([ i for i in self.units if i.name == 'Adept'])
-        n_dt = len([i for i in self.units if i.name == 'DarkTemplar'])
-        n_cannon = len([i for i in self.units if i.name == 'PhotonCannon'])
-        n_sheild = len([i for i in self.units if i.name == 'ShieldBattery'])
-        probe_by_nexus = n_probes/max(1, num_th)
-        probe_by_units = n_probes/max(1, supply_used)
-
-        n_e_mar = len([i for i in self.known_enemy_units if i.name == 'Marine'])
-        n_e_mau = len([i for i in self.known_enemy_units if i.name == 'Marauder'])
-        n_e_hel = len([i for i in self.known_enemy_units if i.name == 'Hellion'])
-        n_e_vik = len([i for i in self.known_enemy_units if i.name == 'Viking'])
-        n_e_banshee = len([i for i in self.known_enemy_units if i.name == 'Banshee'])
-        n_e_raven = len([i for i in self.known_enemy_units if i.name == 'Raven'])
-        n_e_tank = len([i for i in self.known_enemy_units if i.name == 'Tank'])
-        n_e_hell = len([i for i in self.known_enemy_units if i.name == 'Hellbat'])
-
-        return [dead_unit_count, unit_count, game_loop, minerals, supply_cap, supply_left, num_th, keu, kes,
-                vg, l_vg, n_probes, n_gates, n_cyber, n_stalker,n_zealot,n_stargate,n_void,n_robo,n_im,
-                n_e_mar, n_e_mau, n_e_hel, n_e_vik, n_e_banshee, n_e_raven, n_e_tank, n_obs, n_adept, n_dt,
-                n_cannon, n_sheild, n_e_hell, d1, d2, d3, supply_used, probe_by_nexus, probe_by_units,
-                self.counter]
-
-
-    async def on_step(self, iteration):
-        global dump_dict
-
-        self.counter += 1
-        self.iteration = iteration
-        try:
-            if self.max_score < self.reward_func():
-                self.max_score =  self.reward_func()
-
-            dump_dict = {'score':self.max_score, 'past_moves':self.past_moves}
-
-            game_state = self.get_state()
-            self.games_states.append(game_state)
-            t_game_state = self.games_states[-1]
-            np_t_game_state = np.expand_dims(np.array(t_game_state), 0)
-            np_t_past_moves = np.expand_dims(np.array(self.move_history[-memory_size:]), 0)
-            np_t_game_state = np.hstack([np_t_game_state, np_t_past_moves])
-
-            f = self.actions[self.s.get_move(self.actions, np_t_game_state)]
-
-            # #artificial fixes
-            # if len(self.townhalls) < 2 and random.random() < .8:
-            #     f = 4
-            # while ((f == 2 or f == 28) and (self.supply_cap > 190 or self.supply_cap/len(self.townhalls) > 25)):
-            #     f = self.actions[self.s.get_move(self.actions, np_t_game_state)]
-
-            self.move_history.append(f)
-
-            if f == 0:
-                await  self.distribute_workers()
-            if f == 1:
-                await  self.build_workers()
-            if f == 2:
-                await  self.build_pylons()
-            if f == 3:
-                await  self.build_assimilators()
-            if f == 4:
-                await  self.expand()
-            if f == 5:
-                await  self.build_gateway()
-            if f == 6:
-                await  self.build_zealot()
-            if f == 7:
-                await  self.attack()
-            if f == 8:
-                await  self.build_stalker()
-            if f == 9:
-                await  self.build_cybernetic()
-            if f == 10:
-                await  self.build_immortal()
-            if f == 11:
-                await  self.build_obs()
-            if f == 12:
-                await  self.build_robo()
-            if f == 13:
-                await  self.build_stargate()
-            if f == 14:
-                await  self.build_void()
-            if f == 15:
-                await  self.scout()
-            if f == 16:
-                await self.retreat()
-            if f == 17:
-                await self.defend()
-            if f == 18:
-                await self.build_adept()
-            if f == 19:
-                await self.full_retreat()
-            if f == 20:
-                await self.attack_random_base()
-            if f == 21:
-                await self.clear_an_obstacle()
-            if f == 22:
-                await self.build_forge()
-            if f == 23:
-                await self.build_shield_battery()
-            if f == 24:
-                await self.build_cannon()
-            if f == 25:
-                await self.build_twilight()
-            if f == 26:
-                await self.build_dark_shrine()
-            if f == 27:
-                await self.build_dark_templar()
-            if f == 28:
-                await self.build_support_pylon()
-            if f == 29:
-                await self.attack_closest_building()
-
-            self.past_moves.append({'game_state':np_t_game_state, 'f':f})
-
-        except:
-            traceback.print_exc()
-
-
-    async def build_workers(self):
-        if self.units(NEXUS).ready.noqueue and self.can_afford(PROBE):
-            nexus = self.units(NEXUS).ready.noqueue.random
-            await self.do(nexus.train(PROBE))
-
-
-    async def build_pylons(self):
-
-        if  self.can_afford(PYLON) and self.units(NEXUS).ready :
-            if len(self.owned_expansions) > 1:
-                nexuses = [i for i in self.owned_expansions][1:]
-            else:
-                nexuses  = [i for i in self.owned_expansions]
-            nexus = random.choice(nexuses)
-            await self.build(PYLON, near=nexus.position.towards(self.game_info.map_center, random.randint(2, 15)))
-
-
-
-    async def build_support_pylon(self):
-        if self.can_afford(PYLON) and self.units(PYLON).ready:
-            nexus = self.units(PYLON).ready.random
-            await self.build(PYLON, near=nexus.position)
-
-
-    async def build_assimilators(self):
-        for nexus in self.units(NEXUS).ready:
-            vaspenes = self.state.vespene_geyser.closer_than(15.0, nexus)
-            for vaspene in vaspenes:
-                if not self.can_afford(ASSIMILATOR):
-                    break
-                worker = self.select_build_worker(vaspene.position)
-                if worker is None:
-                    break
-                if not self.units(ASSIMILATOR).closer_than(1.0, vaspene).exists:
-                    await self.do(worker.build(ASSIMILATOR, vaspene))
-
-
-    async def expand(self):
-        if self.can_afford(NEXUS):
-            await self.expand_now()
-
-
-    async def build_gateway(self):
-        if self.units(PYLON).ready.exists and self.can_afford(GATEWAY):
-            pylon = self.units(PYLON).ready.random
-            await self.build(GATEWAY, near=pylon)
-
-
-    async def build_stargate(self):
-        if self.units(CYBERNETICSCORE).ready.noqueue.exists and self.can_afford(STARGATE):
-            pylon = self.units(PYLON).ready.noqueue.random
-            await self.build(STARGATE, near=pylon)
-
-
-    async def build_robo(self):
-        if self.units(CYBERNETICSCORE).ready.noqueue.exists and self.can_afford(ROBOTICSFACILITY):
-            pylon = self.units(PYLON).ready.noqueue.random
-            await self.build(ROBOTICSFACILITY, near=pylon)
-
-
-    async def build_zealot(self):
-        if self.units(GATEWAY).ready.noqueue and  self.can_afford(ZEALOT):
-            g = random.choice(self.units(GATEWAY).ready.noqueue)
-            await self.do(g.train(ZEALOT))
-
-
-    async def build_stalker(self):
-        if self.units(GATEWAY).ready.noqueue and self.can_afford(STALKER) and self.supply_left > 0 and self.units(CYBERNETICSCORE).ready:
-            g = random.choice(self.units(GATEWAY).ready.noqueue)
-            await self.do(g.train(STALKER))
-
-    async def build_adept(self):
-        if self.units(GATEWAY).ready.noqueue and self.can_afford(ADEPT) and self.supply_left > 0 and self.units(CYBERNETICSCORE).ready:
-            g = random.choice(self.units(GATEWAY).ready.noqueue)
-            await self.do(g.train(ADEPT))
-
-
-    async def build_obs(self):
-        if self.units(ROBOTICSFACILITY).ready.noqueue and self.can_afford(OBSERVER) and self.supply_left > 0:
-            g = random.choice(self.units(ROBOTICSFACILITY).ready.noqueue)
-            await self.do(g.train(OBSERVER))
-
-
-    async def build_immortal(self):
-        if self.units(ROBOTICSFACILITY).ready.noqueue and self.can_afford(IMMORTAL) and self.supply_left > 0:
-            g = random.choice(self.units(ROBOTICSFACILITY).ready.noqueue)
-            await self.do(g.train(IMMORTAL))
-
-
-    async def build_void(self):
-        if self.units(STARGATE).ready.noqueue and self.can_afford(VOIDRAY) and self.supply_left > 0:
-            g = random.choice(self.units(STARGATE).ready.noqueue)
-            await self.do(g.train(VOIDRAY))
-
-
-    async def build_forge(self):
-        if self.units(PYLON).ready.exists and self.can_afford(FORGE):
-            pylon = self.units(PYLON).ready.random
-            await self.build(FORGE, near=pylon)
-
-
-    async def build_shield_battery(self):
-        if self.units(PYLON).ready.exists and self.units(CYBERNETICSCORE).ready.exists and self.can_afford(SHIELDBATTERY):
-            pylon = self.units(PYLON).ready.random
-            await self.build(SHIELDBATTERY, near=pylon)
-
-
-    async def build_cannon(self):
-        if self.units(PYLON).ready.exists and self.units(FORGE).ready.exists and self.can_afford(PHOTONCANNON):
-            pylon = self.units(PYLON).ready.random
-            await self.build(PHOTONCANNON, near=pylon)
-
-
-    async def build_twilight(self):
-        if self.units(PYLON).ready.exists and self.units(CYBERNETICSCORE).ready.exists and self.can_afford(TWILIGHTCOUNCIL):
-            pylon = self.units(PYLON).ready.random
-            await self.build(TWILIGHTCOUNCIL, near=pylon)
-
-
-    async def build_dark_shrine(self):
-        if self.units(PYLON).ready.exists and self.units(TWILIGHTCOUNCIL).ready.exists and self.can_afford(DARKSHRINE):
-            pylon = self.units(PYLON).ready.random
-            await self.build(DARKSHRINE, near=pylon)
-
-
-    async def build_dark_templar(self):
-        if self.units(DARKSHRINE).ready.noqueue and self.units(GATEWAY).ready.noqueue and self.can_afford(IMMORTAL) and self.supply_left > 0:
-            g = random.choice(self.units(GATEWAY).ready.noqueue)
-            await self.do(g.train(DARKTEMPLAR))
-
-
-    def random_location_variance(self, enemy_start_location):
-        x = enemy_start_location[0]
-        y = enemy_start_location[1]
-
-        x += ((random.randrange(-20, 20))/100) * enemy_start_location[0]
-        y += ((random.randrange(-20, 20))/100) * enemy_start_location[1]
-
-        if x < 0:
-            x = 0
-        if y < 0:
-            y = 0
-        if x > self.game_info.map_size[0]:
-            x = self.game_info.map_size[0]
-        if y > self.game_info.map_size[1]:
-            y = self.game_info.map_size[1]
-
-        go_to = position.Point2(position.Pointlike((x,y)))
-        return go_to
-
-
-    async def scout(self):
-        scout_sent = False
-        if len(self.units(OBSERVER)) > 0:
-            scout = self.units(OBSERVER)[0]
-            if scout.is_idle:
-                enemy_location = self.enemy_start_locations[0]
-                move_to = self.random_location_variance(enemy_location)
-                scout_sent = True
-                await self.do(scout.move(move_to))
-
-        if len(self.units(PROBE)) > 0 and not scout_sent:
-            scout = random.choice(self.units(PROBE))
-            if scout.is_idle:
-                enemy_location = self.enemy_start_locations[0]
-                move_to = self.random_location_variance(enemy_location)
-                scout_sent = True
-                await self.do(scout.move(move_to))
-
-
-        ag_units = []
-        for UNIT in aggressive_units:
-            for s in self.units(UNIT).idle:
-                ag_units.append(s)
-        if ag_units and not scout_sent:
-            scout = random.choice(ag_units)
-            if scout.is_idle:
-                enemy_location = self.enemy_start_locations[0]
-                move_to = self.random_location_variance(enemy_location)
-                await self.do(scout.move(move_to))
-
-
-    async def build_cybernetic(self):
-        if self.units(GATEWAY).ready.exists and self.can_afford(CYBERNETICSCORE):
-            pylon = self.units(PYLON).ready.random
-            await self.build(CYBERNETICSCORE, near=pylon)
-
-
-    async def find_target(self, unit):
+    def get_closest_enemy_to_pos(self, x, y):
         pass
-        # await asyncio.sleep(0.01)
-
-        if len(self.known_enemy_units) > 0:
-
-            return unit.closest_to(self.known_enemy_units)
-        elif len(self.known_enemy_structures) > 0:
-            return unit.closest_to(self.known_enemy_structures)
-        else:
-            return self.enemy_start_locations[0]
 
 
-    async def defend(self):
+    def read_map(self):
+        enemy_df = []
+        enemy_unit_dict = {}
+        for i in self.known_enemy_units:
+            enemy_unit_dict[i.tag] = i
+            enemy_df.append({'tag':i.tag, 'x':i.position[0], 'y':i.position[1]})
+        self.enemy_df = pd.DataFrame.from_dict(enemy_df)
 
-        for UNIT in aggressive_units:
-            for s in self.units(UNIT).idle:
-                if len(self.known_enemy_units) > 0  and self.units(NEXUS).ready:
-                    if not s.can_attack_air:
-                        targets = [i for i in self.known_enemy_units if not i.is_flying]
-                    else:
-                        targets = [i for i in self.known_enemy_units]
-                    target = get_closest(s, targets)
-                    if target:
-                        await self.do(s.attack(target))
-
-
-    async def attack(self):
-        for UNIT in aggressive_units:
-            for s in self.units(UNIT):
-                if not s.can_attack_air:
-                    targets = [i for i in self.known_enemy_units if not i.is_flying]
-                else:
-                    targets = [i for i in self.known_enemy_units]
-                target = get_closest(s, targets)
-                if target:
-                    await self.do(s.attack(target))
+        unit_df = []
+        unit_dict = {}
+        for i in self.units:
+            if i.name.upper() in aggressive_units.keys():
+                unit_dict[i.tag] = i
+                unit_df.append({'tag':i.tag, 'x':i.position[0], 'y':i.position[1]})
+        self.unit_df = pd.DataFrame.from_dict(unit_df)
 
 
-    async def attack_random_base(self):
-        targets = self.known_enemy_structures(ORBITALCOMMAND)
 
-        if targets:
-            target = random.choice(targets)
-            for UNIT in aggressive_units:
-                for s in self.units(UNIT).idle:
-                    if target:
-                        await self.do(s.attack(target))
-
-
-    async def attack_closest_building(self):
-        targets = self.known_enemy_structures
-
-        if targets:
-            for UNIT in aggressive_units:
-                for s in self.units(UNIT).idle:
-                    target = get_closest(s, self.known_enemy_structures)
-                    if target:
-                        await self.do(s.attack(target))
-
-
-    async def clear_an_obstacle(self):
-        if self.state.destructables:
-            target = random.choice(self.state.destructables)
-
-            for UNIT in aggressive_units:
-                for s in self.units(UNIT).idle:
-                    if target:
-                        await self.do(s.attack(target))
-
-
-    async def retreat(self):
-        for UNIT in aggressive_units:
-            for s in self.units(UNIT):
-                target = get_closest(s, self.units(NEXUS))
-                if target:
-                    await self.do(s.move(target.position))
-
-
-    async def full_retreat(self):
-        for UNIT in aggressive_units:
-            for s in self.units(UNIT):
-                await self.do(s.move(self.start_location))
-
-
-    '''Helper functions'''
-    def distance_nexus_to_enemy(self):
-        return get_closest_distance(self.units(NEXUS), self.known_enemy_units)
-
-
-    def distance_to_enemy(self):
-        return get_closest_distance(self.units, self.known_enemy_units)
-
-
-    def distance_to_enemy_buildings(self):
-        return get_closest_distance(self.units, self.known_enemy_structures)
 
 
 def run_games():
@@ -687,7 +281,7 @@ def run_games():
     a = None
     print('playing easy')
     a = run_game(maps.get("AbyssalReefLE"), [
-        Bot(Race.Protoss, SentdeBot(s)),
+        Bot(Race.Protoss, UnitBot(s)),
         Computer(Race.Terran, Difficulty.Easy)
         ], realtime=False)
 

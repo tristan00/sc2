@@ -29,12 +29,12 @@ import time
 import pandas as pd
 
 max_iter = 1000000
-class_num = 30
+class_num = 31
 var_size = 41
 memory_size = 500
 nan_replacement = -1
 max_game_training_size = 1000
-perc_to_consider = .1
+perc_to_consider = .5
 
 
 aggressive_units = {
@@ -84,13 +84,13 @@ def train_strat_model():
     with open(path + 'encoder.plk', 'wb') as f:
         pickle.dump(enc, f)
 
-    # pos_dicts = dicts[:int(len(dicts)*perc_to_consider)]
-    # neg_dicts = dicts[-int(len(dicts)*perc_to_consider):]
-    pos_dicts = [i for i in dicts if i['score'] > 0]
-    if len(pos_dicts) < 10:
-        raise Exception('not enough data')
+    pos_dicts = dicts[:int(len(dicts)*perc_to_consider)]
+    neg_dicts = dicts[-int(len(dicts)*perc_to_consider):]
+    # pos_dicts = [i for i in dicts if i['score'] > 0]
+    # if len(pos_dicts) < 10:
+    #     raise Exception('not enough data')
 
-    neg_dicts = [i for i in dicts if i['score'] < 0]
+    # neg_dicts = [i for i in dicts if i['score'] < 0]
     pos_features = sum([i['past_moves'] for i in pos_dicts], [])
     neg_features = sum([i['past_moves'] for i in neg_dicts], [])
 
@@ -139,9 +139,9 @@ def train_strat_model():
     model.add(layers.Dense(2500, activation='elu'))
     model.add(layers.Dense(2500, activation='elu'))
 
-    model.add(layers.Dense(class_num, activation='sigmoid'))
+    model.add(layers.Dense(class_num, activation='softmax'))
     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['mae'])
-    model.fit(x_train, y_train, validation_data=(x_val, y_val), callbacks=cb, epochs=100, batch_size=512)
+    model.fit(x_train, y_train, validation_data=(x_val, y_val), callbacks=cb, epochs=100, batch_size=1024)
 
 
 def get_closest(unit, unit_list):
@@ -166,7 +166,7 @@ def get_closest_distance(units, e_units):
 
 
 class Strat():
-    random_chance = .2
+    random_chance = .01
     print('random', random_chance)
     def __init__(self):
         try:
@@ -238,8 +238,8 @@ class Partial_RL_Bot(sc2.BotAI):
         # return ( self.state.score.score - self.minerals - self.vespene) + (self.state.score.killed_value_units * ( self.state.score.score - self.minerals - self.vespene))
         # return self.state.score.score
         # return self.state.score.killed_value_units + (self.state.score.killed_value_structures * self.state.score.killed_value_structures)
-        self.max_score =  self.state.score.killed_value_units/(max(self.time*self.time, 1))
-
+        # self.max_score =  self.state.score.killed_value_units/(max(self.time*self.time, 1))
+        self.max_score = -self.time
 
     def get_state(self):
         d1 = self.distance_nexus_to_enemy()
@@ -330,13 +330,12 @@ class Partial_RL_Bot(sc2.BotAI):
             f = self.actions[self.s.get_move(self.actions, np_t_game_state)]
 
             # # #artificial fixes
-            if len(self.townhalls) < 2 and random.random() < .8:
-                f = 4
-            while ((f == 2 or f == 28) and (self.supply_cap > 190 or self.supply_cap/max(len(self.townhalls), 1) > 35)):
+            while (f in [22, 23, 24] and self.counter > 100) or ((f == 2 or f == 28) and (self.supply_cap > 190 or self.supply_cap/max(len(self.townhalls), 1) > 35)):
                 f = self.actions[self.s.get_move(self.actions, np_t_game_state)]
 
-            if  self.supply_cap > 80 and random.random() > .6:
-                f = random.choice([7, 15, 20, 29])
+            if  self.supply_used > 40 and random.random() > .5:
+                f = random.choice([7, 15, 20, 29, 30])
+
 
             self.move_history.append(f)
 
@@ -400,12 +399,21 @@ class Partial_RL_Bot(sc2.BotAI):
                 await self.build_support_pylon()
             if f == 29:
                 await self.attack_closest_building()
+            if f == 30:
+                await self.approach_enemy()
 
 
             self.past_moves.append({'game_state':np_t_game_state, 'f':f})
 
         except:
             traceback.print_exc()
+
+
+    def record_units(self):
+        ts = str(time.time()).replace('.', '_')
+
+        results = []
+        # for i in
 
 
     async def build_workers(self):
@@ -557,6 +565,13 @@ class Partial_RL_Bot(sc2.BotAI):
 
         go_to = position.Point2(position.Pointlike((x,y)))
         return go_to
+
+    async def approach_enemy(self):
+        for UNIT in aggressive_units:
+            for s in self.units(UNIT).idle:
+                enemy_location = self.enemy_start_locations[0]
+                move_to = self.random_location_variance(enemy_location)
+                await self.do(s.move(move_to))
 
 
     async def scout(self):
@@ -728,17 +743,17 @@ def run_games(d):
         Computer(Race.Protoss, d)
         ], realtime=False)
 
-    # if a.name == 'Defeat':
-    #     dump_dict['score'] = -1
-    # elif a.name == 'Tie':
-    #     dump_dict['score'] = 0
-    # else:
-    #     dump_dict['score'] = 1
+    if a.name == 'Defeat':
+        result = 0
+    elif a.name == 'Tie':
+        result = 0
+    else:
+        result = 1
 
     with open('{0}/{1}_data.plk'.format(path, ts), 'wb') as f:
         pickle.dump(dump_dict, f)
     print('game_score:', dump_dict['score'])
-    return dump_dict['score']
+    return result, dump_dict['score']
 
 
 if __name__ == '__main__':
@@ -751,7 +766,7 @@ if __name__ == '__main__':
     for i in range(20000):
         print('game num:', i)
         try:
-            if i % 100 == 0 and i != 0:
+            if i % 10 == 0 and (i != 0 or True):
                 train_strat_model()
         except:
             traceback.print_exc()
@@ -766,21 +781,16 @@ if __name__ == '__main__':
             d = difficulties[3]
         d = difficulties[0]
 
-        wins += max(run_games(d), 0)
+        result, score = run_games(d)
+        wins += result
         games += 1
 
         win_rate = wins / games
 
         print('win_rate', win_rate, games)
-        record.append({'win_rate':win_rate, 'num': i, 'd':d})
+        record.append({'win_rate':win_rate, 'num': i, 'd':d, 'score':score})
         df = pd.DataFrame.from_dict(record)
         df.to_csv('record.csv', index = False)
 
-
-        # pool = [multiprocessing.Process(target=run_games) for i in range(6)]
-        # for p in pool:
-        #     p.start()
-        #     time.sleep(5)
-        # [p.join() for p in pool]
 
 
