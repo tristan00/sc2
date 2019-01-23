@@ -140,9 +140,10 @@ def train_strat_model():
                                 save_weights_only=False)]
 
     model = models.Sequential()
-    model.add(layers.Dense(2000, input_dim=567, activation='elu'))
-    model.add(layers.Dense(2000, activation='elu'))
-    model.add(layers.Dense(2000, activation='elu'))
+    model.add(layers.Dense(2048, input_dim=567, activation='relu'))
+    model.add(layers.Dense(2048, activation='relu'))
+    model.add(layers.Dense(2048, activation='relu'))
+    model.add(layers.Dense(2048, activation='relu'))
 
     model.add(layers.Dense(1, activation='sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
@@ -256,7 +257,7 @@ class Partial_RL_Bot(sc2.BotAI):
     def __init__(self, s):
         super().__init__()
         self.ts = int(datetime.datetime.now().timestamp())
-        self.iterations_per_counter = 4
+        self.iterations_per_counter = 8
         self.iterations_counter = 0
         self.MAX_WORKERS = 100
         self.memory = memory_size
@@ -363,8 +364,8 @@ class Partial_RL_Bot(sc2.BotAI):
             self.iteration = iteration
             try:
                 # print(self.time)
-                # if self.time > 600:
-                #     return
+                if self.time > 720:
+                    return
                 # self.ex
                 self.run_reward_func()
 
@@ -410,6 +411,7 @@ class Partial_RL_Bot(sc2.BotAI):
                 if f == 11:
                     await self.attack_random_base()
                 if f == 12:
+                    pass
                     await self.clear_an_obstacle()
                 if f == 13:
                     await self.attack_closest_building()
@@ -441,6 +443,7 @@ class Partial_RL_Bot(sc2.BotAI):
                     await self.move_random_unit_to_random_loc()
                 if f == 24:
                     await self.stop()
+                    pass
 
 
 
@@ -466,7 +469,7 @@ class Partial_RL_Bot(sc2.BotAI):
 
 
     async def Build_hydra(self):
-        while self.can_afford(HYDRALISK) and self.units(LARVA).exists and self.units(HYDRALISKDEN).exists and self.supply_left > 2:
+        while self.can_afford(HYDRALISK) and self.units(LARVA).exists and self.units(HYDRALISKDEN).ready and self.supply_left > 2:
             await self.do(self.units(LARVA).random.train(HYDRALISK))
 
 
@@ -545,8 +548,8 @@ class Partial_RL_Bot(sc2.BotAI):
         x = enemy_start_location[0]
         y = enemy_start_location[1]
 
-        x += ((random.randrange(-20, 20))/100) * enemy_start_location[0]
-        y += ((random.randrange(-20, 20))/100) * enemy_start_location[1]
+        x += ((random.randrange(-40, 40))/100) * enemy_start_location[0]
+        y += ((random.randrange(-40, 40))/100) * enemy_start_location[1]
 
         if x < 0:
             x = 0
@@ -630,7 +633,7 @@ class Partial_RL_Bot(sc2.BotAI):
 
     async def attack(self):
         for UNIT in aggressive_units:
-            for s in self.units(UNIT).idle:
+            for s in self.units(UNIT):
                 if not s.can_attack_air:
                     targets = [i for i in self.known_enemy_units if not i.is_flying]
                 else:
@@ -665,12 +668,19 @@ class Partial_RL_Bot(sc2.BotAI):
     async def clear_an_obstacle(self):
         if self.state.destructables:
             # target = random.choice(self.state.destructables)
-
+            units = []
             for UNIT in aggressive_units:
                 for s in self.units(UNIT).idle:
-                    target = get_closest(s, self.state.destructables)
-                    if target:
-                        await self.do(s.attack(target))
+                    units.append(s)
+            # units = [i for i in self.units(UNIT).idle for UNIT in aggressive_units]
+            if units:
+                unit = random.choice(units)
+                # for UNIT in aggressive_units:
+                #     for s in self.units(UNIT).idle:
+
+                target = get_closest(unit, self.state.destructables)
+                if target:
+                    await self.do(unit.attack(target))
 
 
     async def retreat(self):
@@ -793,22 +803,21 @@ if __name__ == '__main__':
         print('game num:', i)
         try:
             # train_strat_model()
-            if i % 10 == 0 and i > 0:
+            if i % 10 == 0 and i >= 0:
                 train_strat_model()
         except:
             traceback.print_exc()
 
-        if  i > 20 or win_rate < .6:
-            d = difficulties[0]
-        elif (win_rate < .7 and i > 20):
-            d = difficulties[1]
-        elif win_rate < .8 and i > 30:
-            d = difficulties[2]
-        elif i > 100 and win_rate > .9:
+        if  win_rate > .8 and i > 6000:
             d = difficulties[3]
+        elif  win_rate > .7 and i > 4000:
+            d = difficulties[2]
+        elif  win_rate > .5 and i > 2000:
+            d = difficulties[1]
         else:
             d = difficulties[0]
-        d = difficulties[1]
+
+        # d = difficulties[2]
 
         result, score, t = run_games(d)
         wins += result
